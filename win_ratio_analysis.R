@@ -17,11 +17,11 @@ library(rio)
 library(survival)
 library(BuyseTest)
 library(patchwork)
-source('R/tryRetry.R')
-source('win_ratio_oncology/win_ratio_functions.R')
+source('tryRetry.R')
+source('win_ratio_functions.R')
 
 # Loading the Metadata
-metadata <- rio::import("win_ratio_oncology/data/harvard_misc_dataset/PhaseIII_ClinicalTrials_metadata_F.xlsx") %>%
+metadata <- rio::import("data/harvard_misc_dataset/PhaseIII_ClinicalTrials_metadata_F.xlsx") %>%
   janitor::clean_names()
 
 dim(metadata) # 161  18
@@ -60,7 +60,7 @@ nrow(survival_trials) # 116
 metadata_tidied <- bind_rows(surrogate_trials, survival_trials)
 
 # Loading the IPD Data from Harvard Dataset
-ipd_files <- list.files("win_ratio_oncology/data/harvard_misc_dataset/", pattern = ".*csv", full.names = TRUE)
+ipd_files <- list.files("data/harvard_misc_dataset/", pattern = ".*csv", full.names = TRUE)
 
 # Joining with the Metadata and Transforming the Outcome Time in Weeks
 ipd_data_list <- lapply(ipd_files, function(x){
@@ -90,39 +90,39 @@ names(ipd_data_list) <- names_files
 
 ipd_survival_estimates <- pbapply::pblapply(ipd_data_list, getSurvivalEstimates)
 names(ipd_survival_estimates) <- names_files
-saveRDS(ipd_survival_estimates, "win_ratio_oncology/data/ipd_survival_estimates.rds")
-ipd_survival_estimates <- readRDS("win_ratio_oncology/data/ipd_survival_estimates.rds")
+saveRDS(ipd_survival_estimates, "data/ipd_survival_estimates.rds")
+ipd_survival_estimates <- readRDS("data/ipd_survival_estimates.rds")
 
 ipd_winratio_estimates <- pbapply::pblapply(ipd_data_list, function(x) getWinRatioBatchManual(x) %try% NULL)
 names(ipd_winratio_estimates) <- names_files
-saveRDS(ipd_winratio_estimates, "win_ratio_oncology/data/ipd_winratio_estimates.rds")
-ipd_winratio_estimates <- readRDS("win_ratio_oncology/data/ipd_winratio_estimates.rds")
+saveRDS(ipd_winratio_estimates, "data/ipd_winratio_estimates.rds")
+ipd_winratio_estimates <- readRDS("data/ipd_winratio_estimates.rds")
 
 ipd_peron_estimates <- pbapply::pblapply(ipd_data_list, function(x) getBuyseTestPeron(x) %try% NULL)
 names(ipd_peron_estimates) <- names_files
-saveRDS(ipd_peron_estimates, "win_ratio_oncology/data/ipd_peron_estimates.rds")
-ipd_peron_estimates <- readRDS("win_ratio_oncology/data/ipd_peron_estimates.rds")
+saveRDS(ipd_peron_estimates, "data/ipd_peron_estimates.rds")
+ipd_peron_estimates <- readRDS("data/ipd_peron_estimates.rds")
 
 ipd_gehan_estimates <- pbapply::pblapply(ipd_data_list, function(x) getBuyseTestGehan(x) %try% NULL)
 names(ipd_gehan_estimates) <- names_files
-saveRDS(ipd_gehan_estimates, "win_ratio_oncology/data/ipd_gehan_estimates.rds")
-ipd_gehan_estimates <- readRDS("win_ratio_oncology/data/ipd_gehan_estimates.rds")
+saveRDS(ipd_gehan_estimates, "data/ipd_gehan_estimates.rds")
+ipd_gehan_estimates <- readRDS("data/ipd_gehan_estimates.rds")
 
 # Combining all Results
 survival_estimates_df <- do.call(bind_rows, ipd_survival_estimates)
 ipd_winratio_estimates_df <- do.call(bind_rows, ipd_winratio_estimates)
-ipd_gehan_estimates_df <- do.call(bind_rows, ipd_gehan_estimates)
+# ipd_gehan_estimates_df <- do.call(bind_rows, ipd_gehan_estimates)
 ipd_peron_estimates_df <- do.call(bind_rows, ipd_peron_estimates)
 
-# Getting Only Part of the IPD Gehan and Peron Estimates
-ipd_gehan_estimates_wide_df <- ipd_gehan_estimates_df %>%
-  dplyr::filter(gehan_min_time %in% c(0, 4, 12, 26, 52, 104)) %>%
-  tidyr::pivot_wider(
-    id_cols = c(trial_name, trial_filename),
-    names_from = gehan_min_time,
-    values_from = matches('gehan_'),
-    names_glue = "{.value}_{gehan_min_time}wk"
-  )
+# # Getting Only Part of the IPD Gehan and Peron Estimates
+# ipd_gehan_estimates_wide_df <- ipd_gehan_estimates_df %>%
+#   dplyr::filter(gehan_min_time %in% c(0, 4, 12, 26, 52, 104)) %>%
+#   tidyr::pivot_wider(
+#     id_cols = c(trial_name, trial_filename),
+#     names_from = gehan_min_time,
+#     values_from = matches('gehan_'),
+#     names_glue = "{.value}_{gehan_min_time}wk"
+#   )
 
 ipd_peron_estimates_wide_df <- ipd_peron_estimates_df %>%
   dplyr::filter(peron_min_time %in% c(0, 4, 12, 26, 52, 104)) %>%
@@ -135,10 +135,56 @@ ipd_peron_estimates_wide_df <- ipd_peron_estimates_df %>%
 
 # Now Combining All of Them
 final_results_df <- survival_estimates_df %>%
-  dplyr::left_join(ipd_gehan_estimates_wide_df, by = c("trial_name", "trial_filename")) %>%
+  # dplyr::left_join(ipd_gehan_estimates_wide_df, by = c("trial_name", "trial_filename")) %>%
   dplyr::left_join(ipd_peron_estimates_wide_df, by = c("trial_name", "trial_filename")) %>%
   dplyr::left_join(metadata_tidied,
                    by = c("trial_name", "trial_filename"))
+
+
+# Define the week thresholds
+week_thresholds <- c(0, 4, 12, 26, 52, 104)
+
+# Create the wide dataset
+ipd_peron_estimates_wide_df <- ipd_peron_estimates_df %>%
+      dplyr::filter(peron_min_time %in% week_thresholds) %>%
+      tidyr::pivot_wider(
+            id_cols = c(trial_name, trial_filename),
+            names_from = peron_min_time,
+            values_from = matches('peron_'),
+            names_glue = "{.value}_{peron_min_time}wk"
+      )
+
+# Combine all datasets
+final_results_df <- survival_estimates_df %>%
+      dplyr::left_join(ipd_peron_estimates_wide_df, by = c("trial_name", "trial_filename")) %>%
+      dplyr::left_join(metadata_tidied, by = c("trial_name", "trial_filename"))
+
+# Set Peron variables to NA if median survival < weeks threshold
+final_results_df <- final_results_df %>%
+      dplyr::mutate(
+            across(
+                  matches("^peron_.*_4wk$"),
+                  ~dplyr::if_else(median_fup_estimate < 4, NA_real_, .)
+            ),
+            across(
+                  matches("^peron_.*_12wk$"),
+                  ~dplyr::if_else(median_fup_estimate < 12, NA_real_, .)
+            ),
+            across(
+                  matches("^peron_.*_26wk$"),
+                  ~dplyr::if_else(median_fup_estimate < 26, NA_real_, .)
+            ),
+            across(
+                  matches("^peron_.*_52wk$"),
+                  ~dplyr::if_else(median_fup_estimate < 52, NA_real_, .)
+            ),
+            across(
+                  matches("^peron_.*_104wk$"),
+                  ~dplyr::if_else(median_fup_estimate < 104, NA_real_, .)
+            )
+      )
+
+colnames(final_results_df)
 
 # Getting Only those with OS Results
 final_results_os_df <- final_results_df %>%
@@ -155,17 +201,17 @@ order_trials <- final_results_os_df %>%
 
 metrics_long <- final_results_os_df %>%
   dplyr::mutate(trial_filename = factor(trial_filename, levels = order_trials)) %>%
-  dplyr::mutate(across(matches('gehan_nb_estimate'), ~ .*100)) %>%
+  #dplyr::mutate(across(matches('gehan_nb_estimate'), ~ .*100)) %>%
   dplyr::mutate(across(matches('peron_nb_estimate'), ~ .*100)) %>%
   dplyr::mutate(across(matches('landmark_diff'), ~ .*100)) %>%
   tidyr::pivot_longer(
-    cols = c(matches('peron_nb_estimate'), matches('gehan_nb_estimate'), 
-             matches('landmark_diff'), 'median_diff', 'mean_diff', 'cox_estimate'),
+    cols = c(matches('peron_nb_estimate'), # matches('gehan_nb_estimate'), 
+             matches('landmark_diff'), 'median_diff', 'max_rmean_diff', 'cox_estimate'),
     names_to = 'metric_name',
     values_to = 'metric_value'
   ) %>%
   dplyr::select(trial_name, trial_filename, metric_name, metric_value) %>%
-  dplyr::mutate(metric_name = factor(metric_name, levels = c("cox_estimate", "median_diff", "mean_diff", 
+  dplyr::mutate(metric_name = factor(metric_name, levels = c("cox_estimate", "median_diff", "max_rmean_diff", 
                                                              "peron_nb_estimate_0wk", "peron_nb_estimate_4wk", "peron_nb_estimate_12wk", "peron_nb_estimate_26wk", "peron_nb_estimate_52wk", "peron_nb_estimate_104wk",
                                                              "gehan_nb_estimate_0wk", "gehan_nb_estimate_4wk", "gehan_nb_estimate_12wk", "gehan_nb_estimate_26wk", "gehan_nb_estimate_52wk", "gehan_nb_estimate_104wk",
                                                              "landmark_diff_6mo", "landmark_diff_12mo", "landmark_diff_18mo", "landmark_diff_24mo", "landmark_diff_30mo", "landmark_diff_36mo"))) %>%
@@ -182,7 +228,7 @@ metrics_long %>%
   scale_x_discrete(position = "top") +
   theme(axis.text.x = element_text(angle = 45, hjust = 0))
 
-ggsave(plot = last_plot(), 'win_ratio_oncology/figures/os_metrics_heatmap_value.pdf', width = 52, height = 72, unit = 'cm')
+ggsave(plot = last_plot(), 'figures/os_metrics_heatmap_value.pdf', width = 52, height = 72, unit = 'cm')
 
 metrics_long %>%
   dplyr::distinct(trial_filename, metric_name, .keep_all = TRUE) %>%
@@ -193,7 +239,7 @@ metrics_long %>%
   scale_x_discrete(position = "top") +
   theme(axis.text.x = element_text(angle = 45, hjust = 0))
 
-ggsave(plot = last_plot(), 'win_ratio_oncology/figures/os_metrics_heatmap_rank.pdf', width = 52, height = 72, unit = 'cm')
+ggsave(plot = last_plot(), 'figures/os_metrics_heatmap_rank.pdf', width = 52, height = 72, unit = 'cm')
 
 # ========================================================================================================
 # Creating Scatter Plot of Values - NB Benefit Against the Others
@@ -236,7 +282,7 @@ scatter_data_value %>%
   labs(x = "Comparison Metrics", y = "NB Statistics") +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
-ggsave('win_ratio_oncology/figures/scatter_metrics_nb_value.pdf', width = 30, height = 42, unit = 'cm')
+ggsave('figures/scatter_metrics_nb_value.pdf', width = 30, height = 42, unit = 'cm')
 
 cor_data %>%
   ggplot(aes(x = metric_x, y = metric_y, fill = abs(pearson_r), label = round(pearson_r, 2))) +
@@ -246,7 +292,7 @@ cor_data %>%
   scale_x_discrete(position = "top") +
   theme(axis.text.x = element_text(angle = 45, hjust = 0))
 
-ggsave('win_ratio_oncology/figures/corplot_metrics_nb_value.pdf', width = 21, height = 18, unit = 'cm')
+ggsave('figures/corplot_metrics_nb_value.pdf', width = 21, height = 18, unit = 'cm')
 
 # ========================================================================================================
 # Creating Scatter Plot of Ranks - NB Benefit Against the Others
@@ -289,7 +335,7 @@ scatter_data_rank %>%
   labs(x = "Comparison Metrics", y = "NB Statistics") +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
-ggsave('win_ratio_oncology/figures/scatter_metrics_nb_rank.pdf', width = 30, height = 42, unit = 'cm')
+ggsave('figures/scatter_metrics_nb_rank.pdf', width = 30, height = 42, unit = 'cm')
 
 cor_data %>%
   ggplot(aes(x = metric_x, y = metric_y, fill = abs(spearman_r), label = round(spearman_r, 2))) +
@@ -299,7 +345,7 @@ cor_data %>%
   scale_x_discrete(position = "top") +
   theme(axis.text.x = element_text(angle = 45, hjust = 0))
 
-ggsave('win_ratio_oncology/figures/corplot_metrics_nb_rank.pdf', width = 21, height = 18, unit = 'cm')
+ggsave('figures/corplot_metrics_nb_rank.pdf', width = 21, height = 18, unit = 'cm')
 
 # ========================================================================================================
 # Creating Scatter Plot of Values for the Traditional Methods
@@ -342,7 +388,7 @@ scatter_data_value %>%
   labs(x = "Comparison Metrics", y = "NB Statistics") +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
-ggsave('win_ratio_oncology/figures/scatter_metrics_standard_value.pdf', width = 30, height = 42, unit = 'cm')
+ggsave('figures/scatter_metrics_standard_value.pdf', width = 30, height = 42, unit = 'cm')
 
 cor_data %>%
   ggplot(aes(x = metric_x, y = metric_y, fill = abs(pearson_r), label = round(pearson_r, 2))) +
@@ -352,7 +398,7 @@ cor_data %>%
   scale_x_discrete(position = "top") +
   theme(axis.text.x = element_text(angle = 45, hjust = 0))
 
-ggsave('win_ratio_oncology/figures/corplot_metrics_standard_value.pdf', width = 21, height = 18, unit = 'cm')
+ggsave('figures/corplot_metrics_standard_value.pdf', width = 21, height = 18, unit = 'cm')
 
 # ========================================================================================================
 # Creating Scatter Plot of Ranks for the Traditional Methods
@@ -395,7 +441,7 @@ scatter_data_rank %>%
   labs(x = "Comparison Metrics", y = "NB Statistics") +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
-ggsave('win_ratio_oncology/figures/scatter_metrics_standard_rank.pdf', width = 30, height = 42, unit = 'cm')
+ggsave('figures/scatter_metrics_standard_rank.pdf', width = 30, height = 42, unit = 'cm')
 
 cor_data %>%
   ggplot(aes(x = metric_x, y = metric_y, fill = abs(spearman_r), label = round(spearman_r, 2))) +
@@ -405,7 +451,7 @@ cor_data %>%
   scale_x_discrete(position = "top") +
   theme(axis.text.x = element_text(angle = 45, hjust = 0))
 
-ggsave('win_ratio_oncology/figures/corplot_metrics_standard_rank.pdf', width = 21, height = 18, unit = 'cm')
+ggsave('figures/corplot_metrics_standard_rank.pdf', width = 21, height = 18, unit = 'cm')
 
 # ========================================================================================================
 # Creating Individual Figures for Each Trial
@@ -940,7 +986,7 @@ for(trial_filename_it in trial_filenames){
         panel.background = element_blank()
       )
     
-    ggsave(plot = patch_graph, sprintf('win_ratio_oncology/figures/ind_trials/%03d_%s_figures.pdf', i, trial_filename_it), 
+    ggsave(plot = patch_graph, sprintf('figures/ind_trials/%03d_%s_figures.pdf', i, trial_filename_it), 
            width = 25*1, height = 29*1, unit = 'cm')
     
   } %try% NULL
@@ -961,853 +1007,74 @@ ggplot(aes(x = median_diff, y = peron_nb_estimate_52wk,
                           data = final_results_os_df %>% dplyr::filter(cox_p_value <= 0.05)) +
   geom_hline(yintercept = c(0.05, -0.05), linetype = "dashed", color = "gray50") + 
   geom_vline(xintercept = c(-16, 16), linetype = "dashed", color = "gray50") + 
+  scale_x_continuous(breaks = seq(-80, 80, by = 8)) +  # Adjust range/interval as needed
+      scale_y_continuous(breaks = seq(-0.3, 0.3, by = 0.05), labels = scales::percent_format(accuracy = 1)) + 
   theme_bw()
 
-# Landmark Survival and Peron NB Estimates
-
-ggplot(aes(x = landmark_diff_6mo, y = gehan_nb_estimate_26wk), data = final_results_os_df) +
-  geom_point() + 
-  geom_abline(intercept = 0, slope = 1, lty = 2, color = "red") +
-  expand_limits(x = 0, y = 0) + 
-  geom_hline(yintercept = c(0.05, -0.05), linetype = "dashed", color = "gray50") + 
-  geom_vline(xintercept = c(0.05, -0.05), linetype = "dashed", color = "gray50") + 
-  theme_bw()
-
-ggplot(aes(x = landmark_diff_12mo, y = gehan_nb_estimate_52wk), data = final_results_os_df) +
-  geom_point() + 
-  geom_abline(intercept = 0, slope = 1, lty = 2, color = "black") +
-  expand_limits(x = 0, y = 0) + 
-  geom_hline(yintercept = c(0.05, -0.05), linetype = "dashed", color = "gray50") + 
-  geom_vline(xintercept = c(0.05, -0.05), linetype = "dashed", color = "gray50") + 
-  theme_bw()
-
-ggplot(aes(x = landmark_diff_24mo, y = gehan_nb_estimate_104wk), data = final_results_os_df) +
-  geom_point() + 
-  geom_abline(intercept = 0, slope = 1, lty = 2, color = "red") +
-  expand_limits(x = 0, y = 0) + 
-  geom_hline(yintercept = c(0.05, -0.05), linetype = "dashed", color = "gray50") + 
-  geom_vline(xintercept = c(0.05, -0.05), linetype = "dashed", color = "gray50") + 
-  theme_bw()
-
-ggplot(aes(x = landmark_diff_12mo, y = gehan_nb_estimate_12wk), data = final_results_os_df) +
-  geom_point() +
-  theme_bw() + 
-  geom_abline(intercept = 0, slope = 1, lty = 2, color = "blue")
-
-ggplot(aes(x = landmark_diff_24mo, y = gehan_nb_estimate_12wk), data = final_results_os_df) +
-  geom_point() +
-  theme_bw() + 
-  geom_hline(yintercept = c(0.05, -0.05), linetype = "dashed", color = "gray50") + 
-  geom_vline(xintercept = c(0.05, -0.05), linetype = "dashed", color = "gray50")
-
-ggplot(aes(x = landmark_diff_24mo, y = peron_nb_estimate_12wk), data = final_results_os_df) +
-  geom_point() +
-  theme_bw() + 
-  geom_hline(yintercept = c(0.05, -0.05), linetype = "dashed", color = "gray50") + 
-  geom_vline(xintercept = c(0.05, -0.05), linetype = "dashed", color = "gray50")
-
-ggplot(aes(x = landmark_diff_36mo, y = peron_nb_estimate_12wk), data = final_results_os_df) +
-  geom_point() +
-  theme_bw() + 
-  geom_hline(yintercept = c(0.05, -0.05), linetype = "dashed", color = "gray50") + 
-  geom_vline(xintercept = c(0.05, -0.05), linetype = "dashed", color = "gray50")
-
-
-
-
-### GRAPH WITH CONFIDENCE INTERVAL ###
-# peron_winratio <- ipd_peron_estimates[[trial_filename_it]] %>%
-#   dplyr::mutate(
-#     NetBenefit = (peron_total_wins - peron_total_loss)/(peron_total_wins + peron_total_loss + peron_total_ties),
-#     NegLoss = -(peron_total_loss)/(peron_total_wins + peron_total_loss + peron_total_ties),
-#     percWin = peron_total_wins/(peron_total_wins + peron_total_loss + peron_total_ties),
-#     statsSign = ifelse(peron_wr_p.value < 0.05, "Significant", "Not Significant")
-#   )
-# 
-# peron_winratio %>%
-#   ggplot(aes(x = peron_min_time)) +
-#   geom_col(aes(y = percWin, fill = "Favors Experimental Arm"), alpha = 0.3) +
-#   geom_col(aes(y = NegLoss, fill = "Favors Standard of Care"), alpha = 0.3) +
-#   geom_hline(yintercept = 0, color = "gray40", size = 0.5) +
-#   # geom_col(aes(y = peron_nb_estimate, fill = statsSign), alpha = 0.9) +
-#   geom_rect(
-#     aes(
-#       xmin = peron_min_time - 0.5,
-#       xmax = peron_min_time + 0.5,
-#       ymin = peron_nb_lower.ci,
-#       ymax = peron_nb_upper.ci,
-#       fill = statsSign,
-#     )
-#   ) +
-#   geom_point(aes(y = peron_nb_estimate, fill = "Net Benefit (Surplus)"), alpha = 0.9, size = 0.7) +
-#   geom_line(aes(y = peron_nb_estimate, fill = "Net Benefit (Surplus)"), alpha = 0.9) +
-#   geom_vline(xintercept = c(26, 52, 104), color = "gray60", size = 0.5, linetype = 2) +
-#   ggrepel::geom_label_repel(
-#     data = peron_winratio %>% filter(peron_min_time %in% milestones) %>%
-#       mutate(nudge_amount = ifelse(peron_nb_estimate >= 0, 0.03, -0.03)),
-#     aes(
-#       x = peron_min_time, 
-#       y = peron_nb_estimate, 
-#       label = scales::percent(peron_nb_estimate, accuracy = 0.1)
-#     ),
-#     fontface = "bold", 
-#     size = 3.5, 
-#     color = "#006064",
-#     direction = "y",
-#     nudge_y = peron_winratio %>% filter(peron_min_time %in% milestones) %>%
-#       mutate(nudge_amount = ifelse(peron_nb_estimate >= 0, 0.01, -0.01)) %>%
-#       pull(nudge_amount),
-#     segment.color = "#006064",
-#     segment.size = 0.4,
-#     min.segment.length = 0
-#   ) +
-#   # SCALES
-#   coord_cartesian(ylim = c(-0.3, 0.3)) +
-#   scale_y_continuous(labels = scales::percent, breaks = c(-0.4, -0.3, -0.2, -0.1, -0.05, 0, 0.05, 0.1, 0.2, 0.3, 0.4)) +
-#   scale_fill_manual(
-#     values = c(
-#       "Similar Outcome (Tie)"       = "#CFD8DC", # Light Blue-Grey
-#       "Favors Experimental Arm"     = "#00E5FF", # Cyan (Your preference)
-#       "Favors Standard of Care"     = "#5C6BC0", # Soft Indigo (Instead of Scary Red)
-#       "Net Benefit (Surplus)"       = "#006064",  # Deep Teal/Cyan (Solid)
-#       "Significant"       = "#006064",
-#       "Not Significant" = "gray75"
-#     ),
-#     breaks = c("Favors Experimental Arm", "Net Benefit (Surplus)", 
-#                "Favors Standard of Care", "Similar Outcome (Tie)")
-#   ) +
-#   scale_color_manual(
-#     values = c(
-#       "Similar Outcome (Tie)"       = "#CFD8DC", # Light Blue-Grey
-#       "Favors Experimental Arm"     = "#00E5FF", # Cyan (Your preference)
-#       "Favors Standard of Care"     = "#5C6BC0", # Soft Indigo (Instead of Scary Red)
-#       "Net Benefit (Surplus)"       = "#006064",  # Deep Teal/Cyan (Solid)
-#       "Significant"       = "#006064",
-#       "Not Significant" = "gray75"
-#     ),
-#     breaks = c("Favors Experimental Arm", "Net Benefit (Surplus)", 
-#                "Favors Standard of Care", "Similar Outcome (Tie)")
-#   ) +
-#   # SCALES
-#   theme_minimal(base_size = 10) +
-#   labs(
-#     x = "Survival Time Threshold (Weeks)",
-#     y = "NTB Peron (%)"
-#   ) +
-#   theme(
-#     panel.grid.minor = element_blank(),
-#     legend.position = "top"
-#   ) + 
-#   # We place them at the top of the plot (e.g., 0.45 or 45%)
-#   annotate(
-#     "text", 
-#     x = v_thresholds + 5, # nudge slightly right
-#     y = 0.45, 
-#     label = paste(v_thresholds, "wks"),
-#     angle = 90, size = 3, color = "gray60"
-#   ) +
-#   # Ensure the labels aren't cut off
-#   coord_cartesian(clip = "off") +
-#   theme(plot.margin = margin(5, 40, 5, 5))
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-library(tidyverse)
-library(ggpubr)
-
-# 1. Clean and Pivot the Data
-plot_data <- final_results_os_df %>%
-  # Select only the columns we need to avoid clutter
-  select(
-    trial_name,
-    # The "New" Metrics (Gehan/Peron Net Benefit)
-    matches('gehan_nb_estimate_'), 
-    # The "Old" Metrics (Standard of Care)
-    cox_estimate, mean_diff, median_diff, landmark_diff_12mo, landmark_diff_24mo
-  ) %>%
-  
-  # PIVOT 1: Make the GEHAN thresholds long
-  pivot_longer(
-    cols = matches('gehan_nb_estimate_'),
-    names_to = "gehan_timepoint",
-    values_to = "gehan_value"
-  ) %>%
-  
-  # PIVOT 2: Make the STANDARD metrics long
-  pivot_longer(
-    cols = c(cox_estimate, mean_diff, median_diff, landmark_diff_12mo, landmark_diff_24mo),
-    names_to = "standard_metric",
-    values_to = "standard_value"
-  ) %>%
-  
-  # OPTIONAL: Clean up strings for prettier plots
-  mutate(
-    # Make "gehan_nb_estimate_26wk" -> "26 Weeks"
-    gehan_timepoint = str_remove(gehan_timepoint, "gehan_nb_estimate_"),
-    
-    # Make "cox_estimate" -> "Hazard Ratio"
-    standard_metric = case_when(
-      standard_metric == "cox_estimate" ~ "Hazard Ratio (HR)",
-      standard_metric == "median_diff" ~ "Median Survival Diff.",
-      standard_metric == "mean_diff" ~ "Mean Survival Diff.",
-      TRUE ~ standard_metric # Keep landmarks as is
-    )
-  )
-
-library(tidyverse)
-
-# 1. Calculate the correlations first
-cor_summary <- plot_data %>%
-  group_by(gehan_timepoint, standard_metric) %>%
-  summarise(
-    # Pearson (Linear relationship)
-    pearson_r = cor(standard_value, gehan_value, method = "pearson", use = "complete.obs"),
-    # Spearman (Rank relationship - simpler is better for non-linear)
-    spearman_rho = cor(standard_value, gehan_value, method = "spearman", use = "complete.obs"),
-    .groups = "drop"
-  )
-
-# 2. Plot the Heatmap (Using Pearson as fill, but you can swap to Spearman)
-ggplot(cor_summary, aes(x = standard_metric, y = gehan_timepoint)) +
-  
-  # The Tiles
-  geom_tile(aes(fill = pearson_r), color = "white") +
-  
-  # The Text Labels (Show the correlation value)
-  geom_text(aes(label = round(pearson_r, 2)), color = "black", size = 3) +
-  
-  # Colors: Red = Negative Cor (HR), Blue = Positive Cor (Means/Medians)
-  scale_fill_gradient2(
-    low = "#D50000",   # Strong Negative (e.g. for Hazard Ratio)
-    mid = "white", 
-    high = "#2E7D32",  # Strong Positive
-    midpoint = 0, 
-    limit = c(-1, 1), 
-    name = "Pearson\nCorrelation"
-  ) +
-  
-  theme_minimal() +
-  labs(
-    title = "Validation Matrix",
-    subtitle = "Correlation between New Net Benefit (Y) and Standard Metrics (X)",
-    x = NULL, y = NULL
-  ) +
-  theme(
-    axis.text.x = element_text(angle = 45, hjust = 1),
-    panel.grid = element_blank()
-  )
-
-
-
-
-hr_cutoff <- 0.8
-nb_cutoff <- 0.2
-
-
-plot_data <- final_results_os_df %>%
-  select(trial_name, cox_estimate, gehan_nb_estimate_26wk) %>%
-  mutate(
-    # Categorize the Discordance
-    category = case_when(
-      cox_estimate < hr_cutoff & gehan_nb_estimate_26wk > nb_cutoff ~ "Strong Agreement (Good)",
-      cox_estimate >= hr_cutoff & gehan_nb_estimate_26wk <= nb_cutoff ~ "Strong Agreement (Poor)",
-      cox_estimate < hr_cutoff & gehan_nb_estimate_26wk <= nb_cutoff ~ "Discordant: Good HR / Poor Net Benefit",
-      cox_estimate >= hr_cutoff & gehan_nb_estimate_26wk > nb_cutoff ~ "Discordant: Poor HR / Good Net Benefit"
-    )
-  )
-
-ggplot(plot_data, aes(x = cox_estimate, y = gehan_nb_estimate_26wk)) +
-  
-  # 1. The Quadrant Lines
-  geom_vline(xintercept = hr_cutoff, linetype = "dashed", color = "gray50") +
-  geom_hline(yintercept = nb_cutoff, linetype = "dashed", color = "gray50") +
-  
-  # 2. The Points
-  geom_point(aes(color = category), size = 3, alpha = 0.7) +
-  
-  # 3. Add Labels for the "Discordant" trials (The outliers)
-  geom_text(aes(label = ifelse(grepl("Discordant", category), trial_name, "")),
-            hjust = -0.1, vjust = 0, size = 3, check_overlap = TRUE) +
-  
-  # 4. Invert X axis (because low HR is good)
-  scale_x_reverse(name = "Hazard Ratio (Lower is Better)") +
-  
-  scale_color_manual(values = c(
-    "Strong Agreement (Good)" = "#2E7D32", # Green
-    "Strong Agreement (Poor)" = "#C62828", # Red
-    "Discordant: Good HR / Poor Net Benefit" = "#F9A825", # Yellow/Orange (Focus here!)
-    "Discordant: Poor HR / Good Net Benefit" = "#1565C0"  # Blue
-  )) +
-  
-  theme_minimal() +
-  labs(
-    title = "Magnitude Mismatch: HR vs Net Benefit",
-    subtitle = "Yellow points represent trials where HR overestimates the clinical benefit compared to Net Benefit.",
-    y = "Net Benefit at 26 Weeks (Higher is Better)"
-  ) +
-  theme(legend.position = "bottom", legend.direction = "vertical")
-
-
-library(ggbump) # Great package, or just use geom_line
-library(tidyr)
-
-# 1. Prepare Rank Data
-rank_data <- final_results_os_df %>%
-  select(trial_name, cox_estimate, gehan_nb_estimate_26wk) %>%
-  mutate(
-    # Rank them (1 = Best)
-    # HR: Low is best (ascending)
-    Rank_HR = rank(cox_estimate),
-    # NB: High is best (descending)
-    Rank_NB = rank(-gehan_nb_estimate_26wk),
-    
-    # Calculate the "Shake-up" (Difference in rank)
-    rank_diff = abs(Rank_HR - Rank_NB)
-  ) %>%
-  # Filter for the top 20 "Shake-ups" to keep plot readable
-  # (Or plot all if you use faint lines)
-  slice_max(rank_diff, n = 20) 
-
-# 2. Pivot for Plotting
-plot_ranks <- rank_data %>%
-  pivot_longer(cols = c(Rank_HR, Rank_NB), names_to = "Metric", values_to = "Rank") %>%
-  mutate(Metric = ifelse(Metric == "Rank_HR", "Hazard Ratio", "Net Benefit"))
-
-# 3. Plot
-ggplot(plot_ranks, aes(x = Metric, y = Rank, group = trial_name)) +
-  
-  # The connecting lines
-  geom_line(aes(color = rank_diff), size = 1, alpha = 0.8) +
-  
-  # The dots
-  geom_point(size = 3) +
-  
-  # Add labels only on the sides
-  geom_text(data = plot_ranks %>% filter(Metric == "Hazard Ratio"),
-            aes(label = paste0(trial_name, " (#", Rank, ")")),
-            hjust = 1.1, size = 3) +
-  geom_text(data = plot_ranks %>% filter(Metric == "Net Benefit"),
-            aes(label = paste0("(#", Rank, ") ", trial_name)),
-            hjust = -0.1, size = 3) +
-  
-  # Invert Y axis so Rank #1 is at top
-  scale_y_reverse() +
-  
-  # Color by how much the rank changed
-  scale_color_viridis_c(name = "Change in Rank") +
-  
-  theme_minimal() +
-  labs(
-    title = "The 'Re-Shuffling' Effect",
-    subtitle = "Which trials fall down the rankings when using Net Benefit instead of HR?",
-    x = NULL, y = "Rank (1 = Best Trial)"
-  ) +
-  theme(
-    legend.position = "top",
-    panel.grid.major.x = element_blank()
-  )
-
-colnames(final_results_os_df)
-
-colnames(final_results_os_df)
-
-# ==============================================================================
-# METHOD 1: The "Gold Standard" for Oncology (Recommended)
-# ==============================================================================
-# Why use this?
-# 1. Handles Censoring via IPCW (Inverse Probability of Censoring Weighting).
-# 2. "Neutral" means TRUE CLINICAL TIES (outcomes are within threshold).
-# 3. Uninformative pairs are mathematically redistributed to informative ones.
-# ==============================================================================
-
-
-
-# Output for Method 1
-
-
-
-
-
-
-# ==============================================================================
-# METHOD 2: The "Conservative/Classic" Approach
-# ==============================================================================
-# Why use this?
-# 1. Non-parametric simplicity (no weights).
-# 2. "Neutral" is MIXED: It includes Clinical Ties AND Censored pairs.
-# 3. Penalizes the drug if there is heavy censoring (treats unknown as Tie).
-# ==============================================================================
-
-model_gehan <- BuyseTest(
-  formula          = Arm ~ TTE(TimeWeeks, status = Event, threshold = 1), 
-  data             = x, 
-  
-  # "Gehan": The classic simple score (+1, -1, 0).
-  # Resulting counts will be INTEGERS.
-  scoring.rule     = "Gehan", 
-  
-  # Same inference method works for both
-  method.inference = "u-statistic" 
-)
-
-# Output for Method 2
-confint(model_gehan, statistic = "netBenefit") # Likely closer to 0 than Peron
-
-
-# ==============================================================================
-# HELPER: How to compare the "Types of Ties" between them
-# ==============================================================================
-
-# Check Peron: "Neutral" here is purely clinical (e.g., lived < 1 week longer)
-print(paste("Clinical Ties (Peron):", sum(model_peron@count.neutral)))
-
-# Check Gehan: "Neutral" here is Clinical Ties + Censored Data
-print(paste("Polluted Ties (Gehan):", sum(model_gehan@count.neutral)))
-
-
-x <- ipd_data_list[[1]]
-ipd_winratio_estimates[[1]]$winRatioNoTies
-model <- BuyseTest(Arm~ TTE(TimeWeeks, status = Event, threshold = 1), 
-                   data = x, scoring.rule = "Peron",
-                   method.inference = "u-statistic")
-
-model <- BuyseTest(Arm~ TTE(TimeWeeks, status = Event, threshold = 1), 
-                   data = x, scoring.rule = "Peron",
-                   method.inference = "u-statistic")
-
-# 1. Success Rate (Favorable Probability)
-stat_success <- confint(model, statistic = "favorable")
-
-# 2. Failure Rate (Unfavorable Probability)
-stat_failure <- confint(model, statistic = "unfavorable")
-
-# 4. Standard Win Ratio
-stat_wr <- confint(model, statistic = "winRatio")
-
-# 5. Net Benefit (Win Difference)
-stat_nb <- confint(model, statistic = "netBenefit")
-
-counts_table <- data.frame(
-  Metric = c("Wins (Favorable)", "Losses (Unfavorable)", "Ties (Neutral)", "Uninformative"),
-  Count = c(
-    sum(model@count.favorable),   # Total Wins
-    sum(model@count.unfavorable), # Total Losses
-    sum(model@count.neutral),     # Total Ties
-    sum(model@count.uninf)        # Uninformative (should be low if Peron is working)
-  )
-)
-
-ratio_result <- confint(model, statistic = "winRatio")
-
-all_pts_os <- survfit2(Surv(os_time, os_status) ~ 1, data = df) %>%
-  ggsurvfit() +
-  add_risktable() + 
-  add_censor_mark() +
-  scale_x_continuous(breaks = seq(0, 60, 4)) +
-  add_confidence_interval() +
-  coord_cartesian(xlim = c(0, 60)) +
-  labs(x = 'Months') + 
-  add_quantile() + 
-  labs(title = 'Overall Survival - All Patients')
-
-
-
-test_data <- ipd_data_list[[1]]
-
-test_data <- test_data %>%
-  dplyr::mutate(Arm = factor(Arm, levels = unique(.$Arm)))
-
-x <- survfit(Surv(TimeWeeks, Event) ~ Arm, data = test_data) %>%
-  tidy_mstrata_survfit(stat_name = "median") %>%
-  summarise(
-    median_trt_estimate = median[[1]],
-    median_ctl_estimate = median[[2]],
-    median_diff = median[[1]] - median[[2]],
-    mean_trt_estimate = rmean[[1]],
-    mean_ctl_estimate = rmean[[2]],
-    mean_diff = rmean[[1]] - rmean[[2]]
-  )
-
-# Getting Median Time
-x <- survfit(Surv(TimeWeeks, Event) ~ Arm, data = test_data) %>%
-  tidy_mstrata_survfit(stat_name = "times") %>%
-  group_by(time) %>%
-  summarise(
-    landmark_trt = surv_estimate[[1]],
-    landmark_ctl = surv_estimate[[2]],
-    landmark_diff = surv_estimate[[1]] - surv_estimate[[2]]
-  ) %>%
-  pivot_wider(names_from = "time", values_from = c("landmark_trt", "landmark_ctl", "landmark_diff")) %>%
-  setNames(., paste0(colnames(.), "mo"))
-
-
-# Getting Hazard Ratio
-coxph(Surv(TimeWeeks, Event) ~ Arm, data = test_data %>% dplyr::mutate(Arm = factor(Arm, levels = rev(unique(.$Arm))))) %>%
-  broom.helpers::tidy_plus_plus(exponentiate = T) %>%
-  mutate(est.conf.interval = sprintf('%.2f (%.2f - %.2f)', estimate, conf.low, conf.high)) %>%
-  dplyr::filter(!is.na(statistic)) %>%
-  dplyr::select(
-    cox_term = term,
-    cox_estimate = estimate,
-    cox_conf_low = conf.low,
-    cox_conf_high = conf.high, 
-    cox_p_value = p.value,
-    cox_est_conf_interval = est.conf.interval
-  )
-
-# Getting Win-Ratio
-df_list <- test_data %>%
-  dplyr::mutate(ID = row_number()) %>%
-  dplyr::mutate(Arm = factor(Arm, levels = unique(.$Arm))) %>%
-  dplyr::select(ID, TimeWeeks, Event, Arm) %>%
-  group_by(Arm) %>%
-  group_split()
-
-df_list <- lapply(1:length(df_list), function(x){
-  setNames(df_list[[x]],  paste0(colnames(df_list[[x]]), x))
-})
-
-expanded_grid <- expand.grid(df_list[[1]]$ID1, df_list[[2]]$ID2) %>%
-  dplyr::rename(ID1 = Var1, ID2 = Var2) %>%
-  dplyr::left_join(df_list[[1]]) %>%
-  dplyr::left_join(df_list[[2]])
-
-expanded_grid <- expanded_grid %>%
-  tidyr::crossing(mintime = 1:52) %>%
-  dplyr::mutate(
-    WinLoss = defWinLossComplete(
-      TimeWeeks1, Event1,
-      TimeWeeks2, Event2,
-      mintime = mintime
-    )
-  )
-
-# sum_grid <-  expanded_grid %>%
-#   group_by(mintime) %>%
-#   summarise(
-#     totalMatches = n(),
-#     totalWin = sum(WinLoss == "Win"),
-#     totalLoss = sum(WinLoss == "Loss"),
-#     totalTie = sum(WinLoss == "Tie"),
-#     winRatioNoTies = totalWin/totalLoss,
-#     successRatio = (totalWin/totalMatches + (totalLoss/totalMatches*0.5)) / (totalLoss/totalMatches + (totalLoss/totalMatches*0.5)),
-#     winDifference = (totalWin - totalLoss)/totalMatches
-#   )
-
-sum_grid <-  expanded_grid %>%
-  group_by(mintime) %>%
-  summarise(
-    totalMatches = n(),
-    totalWin = sum(WinLoss == "Win"),
-    totalLoss = sum(WinLoss == "Loss"),
-    totalFalseTie = sum(WinLoss == "False Tie"),
-    totalTrueTieCensored = sum(WinLoss == "True Tie (Censored)"),
-    totalTrueTieEvent = sum(WinLoss == "True Tie (Event)"),
-    totalTrueTie = sum(WinLoss == "True Tie (Event)" | WinLoss == "True Tie (Censored)"),
-    totalTie = sum(WinLoss == "True Tie (Event)" | WinLoss == "True Tie (Censored)" | WinLoss == "False Tie"),
-    
-    percWin = totalWin/totalMatches,
-    percLoss = totalLoss/totalMatches,
-    percFalseTie = totalFalseTie/totalMatches,
-    percTrueTieCensored = totalTrueTieCensored/totalMatches,
-    percTrueTieEvent = totalTrueTieEvent/totalMatches,
-    percTrueTie = totalTrueTie/totalMatches,
-    percTie = totalTie/totalMatches,
-    
-    winRatioNoTies = totalWin/totalLoss,
-    successRatio = (totalWin/totalMatches + (totalLoss/totalMatches*0.5)) / (totalLoss/totalMatches + (totalLoss/totalMatches*0.5)),
-    winDifference = (totalWin - totalLoss)/totalMatches
-  )
-
-ggplot(aes(x=mintime, y=winRatioNoTies), data = ipd_winratio_estimates[[1]]) + 
-  geom_point() + geom_line() +
-  ylim(0.5, 2) + 
-  geom_hline(yintercept = 1, color = "gray10", linetype = "dashed") + 
-  theme_bw() 
-
-ggplot(aes(x=mintime, y=successRatio), data = ipd_winratio_estimates[[1]]) + 
-  geom_point() + geom_line() +
-  ylim(0.5, 2) + 
-  geom_hline(yintercept = 1, color = "gray10", linetype = "dashed") + 
-  theme_bw()
-
-ggplot(aes(x=mintime, y=winDifference), data = ipd_winratio_estimates[[1]]) + 
-  geom_col(fill = "gray70") + geom_point() + geom_line() +
-  ylim(-0.3,  0.3) + 
-  geom_hline(yintercept = 0, color = "gray10", linetype = "dashed") + 
-  theme_bw() 
-
-ipd_winratio_estimates[[1]] %>%
-  tidyr::pivot_longer(cols = c("totalWin", "totalLoss", "totalTie"), 
-                      names_to = "MatchResult", values_to = "MatchNumber") %>%
-  
-  # STEP 1: Define the hierarchy (Last item = Drawn on Top)
-  # Order: Tie (Back) -> Loss (Middle) -> Win (Front)
-  dplyr::mutate(MatchResult = factor(MatchResult, levels = c("totalTie","totalWin", "totalLoss"))) %>%
-  
-  # STEP 2: Sort the actual data rows by this factor
-  # This ensures the 'Win' rows are at the bottom of the data frame, so they are drawn last.
-  dplyr::arrange(as.numeric(MatchResult)) %>%
-  
-  ggplot(aes(x=mintime, y=MatchNumber, fill=MatchResult)) + 
-  geom_col(
-    position = "identity", 
-    alpha = 0.6,      
-    size = 1.2,
-    width = 0.7
-  ) +
-  scale_fill_manual(values = c(
-    "totalLoss" = "#4a4a4a",   
-    "totalTie"  = "#b0b0b0",   
-    "totalWin"  = "#00E5FF"    
-  )) +
-  theme_minimal() +
-  labs(title = "Win Percentage vs Context (Loss/Tie)")
-
-
-ipd_winratio_estimates[[1]] %>%
-  tidyr::pivot_longer(cols = c("totalWin", "totalLoss", "totalTie"), 
-                      names_to = "MatchResult", values_to = "MatchNumber") %>%
-  
-  # STEP 1: Define the hierarchy (Last item = Drawn on Top)
-  # Order: Tie (Back) -> Loss (Middle) -> Win (Front)
-  dplyr::mutate(MatchResult = factor(MatchResult, levels = c("totalTie","totalWin", "totalLoss"))) %>%
-  
-  # STEP 2: Sort the actual data rows by this factor
-  # This ensures the 'Win' rows are at the bottom of the data frame, so they are drawn last.
-  dplyr::arrange(as.numeric(MatchResult)) %>%
-  
-  ggplot(aes(x=mintime, y=MatchNumber, fill=MatchResult)) + 
-  geom_col(
-    alpha = 0.6,      
-    size = 1.2,
-    width = 0.7
-  ) +
-  scale_fill_manual(values = c(
-    "totalLoss" = "#4a4a4a",   
-    "totalTie"  = "#b0b0b0",   
-    "totalWin"  = "#00E5FF"    
-  )) +
-  theme_minimal() +
-  labs(title = "Win Percentage vs Context (Loss/Tie)")
-
-ipd_winratio_estimates[[1]] %>%
-  tidyr::pivot_longer(
-    cols = c("totalWin", "totalLoss", "totalFalseTie", 
-             "totalTrueTieEvent", "totalTrueTieCensored"), 
-    names_to = "MatchResult", 
-    values_to = "MatchNumber"
-  ) %>%
-  
-  # STEP 1: Define Hierarchy (Drawing Order)
-  # Level 1 is drawn at the BACK. Last Level is drawn at the FRONT.
-  # Order: Loss (Back) -> Ties (Middle) -> Win (Front)
-  dplyr::mutate(MatchResult = factor(MatchResult, levels = c(
-    "totalFalseTie",        # Middle Layer 1
-    "totalTrueTieCensored", # Middle Layer 2
-    "totalTrueTieEvent",    # Middle Layer 3
-    "totalLoss",            # Backmost Layer
-    "totalWin"              # Front Layer (Hero)
-  ))) %>%
-  
-  # STEP 2: Sort rows to force ggplot to draw in this order
-  dplyr::arrange(MatchResult) %>%
-  
-  ggplot(aes(x = mintime, y = MatchNumber, fill = MatchResult)) + 
-  geom_col(
-    alpha = 0.7,      # Increased slightly so light greys are visible
-    width = 0.7
-  ) +
-  
-  # STEP 3: The Color Palette
-  scale_fill_manual(values = c(
-    # THE SIGNAL (Front)
-    "totalWin"             = "#00E5FF",  # Bright Cyan
-    
-    # THE NOISE / CONTEXT (Back) -> Shades of Grey
-    "totalTrueTieEvent"    = "#808080",  # Medium Grey (Strongest Tie)
-    "totalTrueTieCensored" = "#B0B0B0",  # Light Grey
-    "totalFalseTie"        = "#E0E0E0",  # Very Light Grey (Weakest Tie)
-    "totalLoss"            = "#333333"   # Dark Charcoal (Deep Background)
-  )) +
-  
-  theme_minimal() +
-  labs(title = "Win Percentage vs Context (Loss/Tie Breakdown)")
-
-ipd_winratio_estimates[[1]] %>%
-  tidyr::pivot_longer(
-    cols = c("totalWin", "totalLoss", "totalFalseTie", 
-             "totalTrueTieEvent", "totalTrueTieCensored"), 
-    names_to = "MatchResult", 
-    values_to = "MatchNumber"
-  ) %>%
-  
-  # STEP 1: Define Hierarchy (Drawing Order)
-  # Level 1 is drawn at the BACK. Last Level is drawn at the FRONT.
-  # Order: Loss (Back) -> Ties (Middle) -> Win (Front)
-  dplyr::mutate(MatchResult = factor(MatchResult, levels = c(
-    "totalFalseTie",        # Middle Layer 1
-    "totalTrueTieCensored", # Middle Layer 2
-    "totalTrueTieEvent",    # Middle Layer 3
-    "totalLoss",            # Backmost Layer
-    "totalWin"              # Front Layer (Hero)
-  ))) %>%
-  
-  # STEP 2: Sort rows to force ggplot to draw in this order
-  dplyr::arrange(MatchResult) %>%
-  
-  ggplot(aes(x = mintime, y = MatchNumber, fill = MatchResult)) + 
-  geom_col(
-    alpha = 0.7,      # Increased slightly so light greys are visible
-    width = 0.7
-  ) +
-  
-  # STEP 3: The Color Palette
-  scale_fill_manual(values = c(
-    # THE SIGNAL (Front)
-    "totalWin"             = "#00E5FF",  # Bright Cyan
-    
-    # THE NOISE / CONTEXT (Back) -> Shades of Grey
-    "totalTrueTieEvent"    = "#808080",  # Medium Grey (Strongest Tie)
-    "totalTrueTieCensored" = "#B0B0B0",  # Light Grey
-    "totalFalseTie"        = "#E0E0E0",  # Very Light Grey (Weakest Tie)
-    "totalLoss"            = "#333333"   # Dark Charcoal (Deep Background)
-  )) +
-  
-  theme_minimal() +
-  labs(title = "Win Percentage vs Context (Loss/Tie Breakdown)")
-
-
-
-ipd_winratio_estimates[[1]] %>%
-  # STEP 1: Calculate the "Mountain" coordinates
-  dplyr::mutate(
-    # The solid mountain is simply Win minus Loss
-    NetBenefit = percWin - percLoss,
-    
-    # We keep the "Ghost" forces for context
-    NegLoss = -percLoss
-  ) %>%
-  
-  ggplot(aes(x = mintime)) +
-  
-  # LAYER A: The "Ghost" Forces (Context)
-  # These are faint (alpha = 0.2) to show "Potentials"
-  geom_area(aes(y = percWin, fill = "Potential Gain"), alpha = 0.15) +
-  geom_area(aes(y = NegLoss,  fill = "Potential Risk"), alpha = 0.15) +
-  
-  # LAYER B: The Reference Line (Zero)
-  geom_hline(yintercept = 0, color = "gray50", size = 0.5) +
-  
-  # LAYER C: The "Mountain of Difference" (The Reality)
-  # This is the SOLID area showing exactly how much BETTER the drug is
-  geom_area(aes(y = NetBenefit, fill = "Net Benefit (Surplus)"), alpha = 0.8) +
-  
-  # COLORS & STYLING
-  scale_fill_manual(
-    name = "What you are seeing",
-    values = c(
-      "Potential Gain"      = "#00E5FF",  # Faint Cyan
-      "Potential Risk"      = "#FF5252",  # Faint Red
-      "Net Benefit (Surplus)" = "#00838F" # Dark/Solid Cyan (The Winner!)
-    )
-  ) +
-  
-  # Scales to make it look like a medical chart
-  scale_y_continuous(labels = scales::percent) +
-  
-  theme_minimal() +
-  labs(
-    title = "The Surplus of Benefit",
-    subtitle = "The dark mountain shows exactly how much the Wins OUTWEIGH the Losses.",
-    x = "Survival Time Threshold",
-    y = "Probability difference"
-  )
-
-
-library(ggplot2)
-library(dplyr)
-
-
-ipd_winratio_estimates[[1]] %>%
-  tidylog::filter(mintime %in% c(4, 26, 52)) %>%
-  mutate(
-    countWin  = round(percWin * 100),
-    countLoss = round(percLoss * 100),
-    # Calculate Tie as remainder to ensure it sums exactly to 100 regardless of rounding
-    countTie  = 100 - (countWin + countLoss)
-  ) %>%
-  mutate(dots = pmap(list(countWin, countTie, countLoss), function(w, t, l) {
-    c(rep("Favors Experimental", w),
-      rep("Similar Outcome (Tie)", t),
-      rep("Favors Standard Care", l))
-  })) %>%
-  unnest(dots) %>%
-  group_by(mintime) %>%
-  mutate(
-    dot_id = row_number(),
-    x_pos = ((dot_id - 1) %% 10) + 1, 
-    y_pos = ceiling(dot_id / 10)
-  ) %>%
-  ungroup() %>%
-  # 4. Set Factor Levels for logical ordering (Win -> Tie -> Loss)
-  mutate(dots = factor(dots, levels = c("Favors Experimental", 
-                                        "Similar Outcome (Tie)", 
-                                        "Favors Standard Care"))) %>%
-  
-  ggplot(aes(x = x_pos, y = y_pos, color = dots)) +
-  geom_point(size = 3, shape = 16, stroke = 0.5) +
-  facet_wrap(~ mintime, labeller = label_both, ncol = 4) +
-  scale_color_manual(
-    values = c(
-      "Favors Experimental"    = "#00E5FF", # Cyan (Bright/New)
-      "Similar Outcome (Tie)"  = "#CFD8DC", # Light Grey (Neutral)
-      "Favors Standard Care"   = "#3F51B5"  # Indigo (Standard/Conservative)
-    )
-  ) +
-  theme_minimal() +
-  theme(
-    axis.text = element_blank(),
-    axis.title = element_blank(),
-    panel.grid = element_blank(),
-    strip.text = element_text(size = 12, face = "bold"),
-    strip.background = element_rect(fill = "gray95", color = NA),
-    legend.position = "top",
-    legend.text = element_text(size = 11),
-    legend.title = element_text(face = "bold"),
-    panel.spacing = unit(1, "lines")
-  )
+ggsave("figures/scatter_median_nb_52wks.pdf", width = 16*1.2, height = 11*1.2, unit = 'cm')
+
+ggplot(aes(x = max_rmean_diff, y = peron_nb_estimate_52wk, 
+           color = cox_p_value <= 0.05), data = final_results_os_df) +
+      geom_point(size=2) +
+      ggrepel::geom_text_repel(aes(label = trial_filename), max.overlaps = 10,
+                               data = final_results_os_df %>% dplyr::filter(cox_p_value <= 0.05)) +
+      geom_hline(yintercept = c(0.05, -0.05), linetype = "dashed", color = "gray50") + 
+      geom_vline(xintercept = c(-16, 16), linetype = "dashed", color = "gray50") + 
+      scale_x_continuous(breaks = seq(-80, 80, by = 8)) +  # Adjust range/interval as needed
+      scale_y_continuous(breaks = seq(-0.3, 0.3, by = 0.05), labels = scales::percent_format(accuracy = 1)) + 
+      theme_bw()
+
+ggsave("figures/scatter_rmean_nb_52wks.pdf", width = 16*1.2, height = 11*1.2, unit = 'cm')
+
+ggplot(aes(x = landmark_diff_12mo, y = peron_nb_estimate_52wk, 
+           color = cox_p_value <= 0.05), data = final_results_os_df) +
+      geom_point(size=2) +
+      ggrepel::geom_text_repel(aes(label = trial_filename), max.overlaps = 10,
+                               data = final_results_os_df %>% dplyr::filter(cox_p_value <= 0.05)) +
+      geom_hline(yintercept = c(0.05, -0.05), linetype = "dashed", color = "gray50") + 
+      geom_vline(xintercept = c(0.05, -0.05), linetype = "dashed", color = "gray50") + 
+      scale_x_continuous(breaks = seq(-0.3, 0.3, by = 0.05), labels = scales::percent_format(accuracy = 1)) + 
+      scale_y_continuous(breaks = seq(-0.3, 0.3, by = 0.05), labels = scales::percent_format(accuracy = 1)) + 
+      theme_bw()
+
+ggsave("figures/scatter_landamrk_52wks_nb_52wks.pdf", width = 16*1.2, height = 11*1.2, unit = 'cm')
+
+# Median Difference and Peron NB Estimates
+ggplot(aes(x = median_diff, y = peron_nb_estimate_26wk, 
+           color = cox_p_value <= 0.05), data = final_results_os_df) +
+      geom_point(size=2) +
+      ggrepel::geom_text_repel(aes(label = trial_filename), max.overlaps = 10,
+                               data = final_results_os_df %>% dplyr::filter(cox_p_value <= 0.05)) +
+      geom_hline(yintercept = c(0.01, -0.01), linetype = "dashed", color = "gray50") + 
+      geom_vline(xintercept = c(-16, 16), linetype = "dashed", color = "gray50") + 
+      scale_x_continuous(breaks = seq(-80, 80, by = 8)) +  # Adjust range/interval as needed
+      scale_y_continuous(breaks = seq(-0.3, 0.3, by = 0.05), labels = scales::percent_format(accuracy = 1)) + 
+      theme_bw()
+
+ggsave("figures/scatter_median_nb_26wks.pdf", width = 16*1.2, height = 11*1.2, unit = 'cm')
+
+ggplot(aes(x = max_rmean_diff, y = peron_nb_estimate_26wk, 
+           color = cox_p_value <= 0.05), data = final_results_os_df) +
+      geom_point(size=2) +
+      ggrepel::geom_text_repel(aes(label = trial_filename), max.overlaps = 10,
+                               data = final_results_os_df %>% dplyr::filter(cox_p_value <= 0.05)) +
+      geom_hline(yintercept = c(0.1, -0.1), linetype = "dashed", color = "gray50") + 
+      geom_vline(xintercept = c(-16, 16), linetype = "dashed", color = "gray50") + 
+      scale_x_continuous(breaks = seq(-80, 80, by = 8)) +  # Adjust range/interval as needed
+      scale_y_continuous(breaks = seq(-0.3, 0.3, by = 0.05), labels = scales::percent_format(accuracy = 1)) + 
+      theme_bw()
+
+ggsave("figures/scatter_rmean_nb_26wks.pdf", width = 16*1.2, height = 11*1.2, unit = 'cm')
+
+ggplot(aes(x = landmark_diff_6mo, y = peron_nb_estimate_26wk, 
+           color = cox_p_value <= 0.05), data = final_results_os_df) +
+      geom_point(size=2) +
+      ggrepel::geom_text_repel(aes(label = trial_filename), max.overlaps = 10,
+                               data = final_results_os_df %>% dplyr::filter(cox_p_value <= 0.05)) +
+      geom_hline(yintercept = c(0.05, -0.05), linetype = "dashed", color = "gray50") + 
+      geom_vline(xintercept = c(0.05, -0.05), linetype = "dashed", color = "gray50") + 
+      scale_x_continuous(breaks = seq(-0.3, 0.3, by = 0.05), labels = scales::percent_format(accuracy = 1)) + 
+      scale_y_continuous(breaks = seq(-0.3, 0.3, by = 0.05), labels = scales::percent_format(accuracy = 1)) + 
+      theme_bw()
+
+ggsave("figures/scatter_landmark_26wks_nb_26wks.pdf", width = 16*1.2, height = 11*1.2, unit = 'cm')

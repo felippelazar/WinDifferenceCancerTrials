@@ -18,7 +18,7 @@ library(survival)
 library(BuyseTest)
 library(patchwork)
 library(survRM2)
-source('R/tryRetry.R')
+source('tryRetry.R')
 
 # ============================================================================ #
 # 1. Getting Strata Names from a survfit Object
@@ -194,7 +194,8 @@ getSurvivalEstimates <- function(data){
     # Extract the difference row from the unadjusted results table
     # Row 2 is typically the "RMST (arm=1)-(arm=0)" row
     diff_row <- as.data.frame(fit$unadj) %>% 
-      slice(2) %>% 
+      slice(1) %>% 
+      dplyr::mutate(Est. = -Est.) %>%
       select(Est., p) %>%
       rename(rmean_diff = Est., p_value = p)
     
@@ -205,8 +206,9 @@ getSurvivalEstimates <- function(data){
     pivot_wider(
       names_from = landmark,
       values_from = c(rmean_diff, p_value),
-      names_glue = "{landmark}_{.value}"
-    )
+      names_glue = "{landmark}_rmean_{.value}"
+    ) %>%
+        setNames(., gsub("rmean_rmean", "rmean", colnames(.)))
   
   # Landmark Survival Estimates
   landmark_data <- lapply(list(seq(6, 36, 6), seq(6, 30, 6), seq(6, 24, 6), seq(6, 18, 6), seq(6, 12, 6), seq(6, 6, 6)), function(times) {
